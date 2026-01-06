@@ -1,0 +1,282 @@
+% !TEX program = xelatex
+\documentclass[twocolumn]{article}
+\usepackage{ctex}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\geometry{a4paper, left=2cm, right=2cm, top=2.5cm, bottom=2.5cm, columnsep=1cm}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    columns=flexible,
+    literate={\_}{{\textunderscore}}1,
+    mathescape=false,
+    texcl=false
+}
+\lstset{style=mystyle}
+
+\lstdefinelanguage{flex}{
+    keywords={options, case-insensitive, noyywrap, yylineno, x, s},
+    sensitive=false,
+    morecomment=[l][\color{codegreen}]{//},
+    morecomment=[s][\color{codegreen}]{/*}{*/},
+    morecomment=[s][\color{codegreen}]{\%\{}{\%\}},
+    morestring=[b][\color{codepurple}]",
+    alsoletter={-,>},
+    morekeywords=[2]{BEGIN, ECHO, REJECT, yylval, yytext, yyleng, yylex, curr_lineno},
+}
+\lstdefinelanguage{cool}{
+    keywords={class, inherits, if, then, else, fi, while, loop, pool, let, in, case, of, esac, new, isvoid, not, true, false, Int, String, Bool, Object, SELF_TYPE, self},
+    sensitive=false,
+    morecomment=[l][\color{codegreen}]{--},
+    morecomment=[s][\color{codegreen}]{(*}{*)},
+    morestring=[b][\color{codepurple}]",
+}
+\lstdefinelanguage{c++}{
+    keywords={class, struct, if, else, while, for, switch, case, break, continue, return,
+        public, private, protected, virtual, inline, const, static, using, namespace,
+        typedef, template, typename, new, delete, this, override},
+    keywordstyle=\color{magenta},
+    sensitive=true,
+    morecomment=[l][\color{codegreen}]{//},
+    morecomment=[s][\color{codegreen}]{/*}{*/},
+    morestring=[b][\color{codepurple}]",
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{COOL 代码生成器实验报告}
+\fancyhead[R]{\thepage}
+\fancyfoot[C]{\small \copyright\ 2025}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\title{\vspace{-1cm} \textbf{COOL 语言代码生成器开发报告} \\ \large \texttt{Compiler Principle Assignment PA5}}
+\author{姓名:  谢俊\\ 学号: 20238131026\\ 班级: 编译原理课程}
+\date{\today}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+本实验在已完成的 COOL 词法分析、语法分析和语义分析的基础上，实现了 PA5 要求的代码生成器（Code Generator）。代码生成器以语义分析阶段输出的带类型标注的抽象语法树（AST）为输入，生成可在 SPIM 模拟器上运行的 MIPS 汇编代码。实验在不修改框架核心文件的前提下，主要扩展并实现了 \texttt{cgen.cc}、\texttt{cgen.h}、\texttt{cool-tree.h}、\texttt{cool-tree.handcode.h} 中的类表构建、运行时布局、环境管理以及各类表达式节点的代码生成逻辑。通过与官方编译器 \texttt{coolc} 生成的汇编在 SPIM 上对比测试，验证了实现的正确性与与官方实现的一致性。
+\end{abstract}
+
+\section{评分项映射}
+\begin{table*}[ht]
+    \centering
+    \caption{评分项与实现映射（代码生成实验）}
+    \label{tab:grading-pa5}
+    \begin{tabularx}{\textwidth}{l X c}
+        \toprule
+        \textbf{类别} & \textbf{覆盖点} & \textbf{分值} \\
+        \midrule
+        代码生成原理 & 目标机模型、调用约定、对象布局、运行时系统接口理解 & 20 \\
+        类与对象布局 & 类标签分配、继承树、类名表、对象表、原型对象布局 & 20 \\
+        调度表与方法调用 & 分发表构建、静态/动态派发、SELF\_TYPE 处理 & 20 \\
+        表达式代码生成 & 赋值、分派、条件/循环、case、算术与逻辑运算等 & 20 \\
+        环境与作用域管理 & Environment 设计、本地变量/参数/属性访问、作用域处理 & 10 \\
+        测试与集成 & 与官方 \texttt{coolc} 输出对比、SPIM 运行测试、错误定位 & 10 \\
+        报告与代码质量 & 结构清晰、逻辑完整、实现与设计一致性 & 10 \\
+        主观评分与查重 & 完整性、独立实现程度与可读性 & 10 \\
+        \bottomrule
+        \multicolumn{2}{r}{\textbf{总分}} & \textbf{110（可按课程标准折算为 100）} \\
+    \end{tabularx}
+\end{table*}
+
+\section{项目概述与环境}
+\subsection{项目目标}
+在 COOL 编译器框架下，实现一个与官方编译器 \texttt{coolc} 输出等价的代码生成器，具体目标包括：
+\begin{itemize}
+    \item 构建完整的类代码生成表（\texttt{CgenClassTable}），分配类标签并建立继承树；
+    \item 为每个类生成类名表（\texttt{class\_nameTab}）、对象表（\texttt{class\_objTab}）、分发表（dispatch table）和原型对象（protObj）；
+    \item 为每个类生成初始化方法（\texttt{Class\_init}）和方法实现代码（\texttt{Class.method}）；
+    \item 为各类表达式（赋值、方法调用、条件、循环、case、算术与逻辑运算等）生成符合 COOL 运行时约定的 MIPS 汇编；
+    \item 正确处理 \texttt{SELF\_TYPE}、\texttt{isvoid}、\texttt{new} 等特殊语义；
+    \item 通过 SPIM 对比测试，验证与官方编译器在行为上的一致性。
+\end{itemize}
+
+\subsection{开发与运行环境}
+\begin{itemize}
+    \item 操作系统: Windows 主机 + VMware 虚拟机中的 Ubuntu
+    \item 编译器: \texttt{g++}（C++11）、\texttt{make}
+    \item 工具: 课程提供的 \texttt{lexer}、\texttt{parser}、\texttt{semant}、\texttt{coolc}、\texttt{spim}/\texttt{xspim}
+    \item 工程目录: \texttt{\textasciitilde/student-dist/assignments/PA5}
+\end{itemize}
+
+\subsection{核心文件}
+本次实验仅修改以下四个文件：
+\begin{itemize}
+    \item \texttt{cool-tree.handcode.h}
+    \item \texttt{cool-tree.h}
+    \item \texttt{cgen.h}
+    \item \texttt{cgen.cc}
+\end{itemize}
+
+\section{代码生成设计概述}
+本节简要说明运行时对象布局、类标签分配、Environment 设计以及表达式代码生成的总体思路，内容与课程 PA5 指南一致。
+
+\subsection{运行时对象布局}
+在本次实现中，所有 COOL 对象遵循统一的内存布局：
+\begin{itemize}
+    \item 第 0 个字：值为 \texttt{-1} 的 eye-catcher；
+    \item 第 1 个字：类标签 \texttt{class\_tag}，用于 \texttt{case} 匹配与动态类型判断；
+    \item 第 2 个字：对象大小（以 word 为单位），包括头部和所有属性；
+    \item 第 3 个字：指向分发表（dispatch table）的指针；
+    \item 之后若干字：按继承顺序排列的属性值。
+\end{itemize}
+每个类对应一个原型对象 \texttt{Class\_protObj}，对象表 \texttt{class\_objTab} 中为每个类保存 \texttt{protObj} 和 \texttt{init} 方法地址，\texttt{new} 表达式通过复制 \texttt{protObj} 并调用对应 \texttt{init} 完成对象创建。
+
+\subsection{寄存器与调用约定}
+遵循 COOL 运行时约定：
+\begin{itemize}
+    \item \texttt{\$a0}（ACC）: 保存当前表达式求值结果；
+    \item \texttt{\$s0}（SELF）: 保存当前 \texttt{self} 对象；
+    \item \texttt{\$fp}（FP）: 帧指针，指向保存旧 \texttt{FP} 的位置；
+    \item \texttt{\$sp}（SP）: 栈顶指针，栈向低地址增长；
+    \item \texttt{\$ra}（RA）: 返回地址。
+\end{itemize}
+方法调用时，调用者负责把实际参数压栈，被调用者在栈上为 \texttt{FP}、\texttt{SELF} 和 \texttt{RA} 预留 3 个字的空间，返回时恢复寄存器并弹出参数。
+
+\section{关键实现}
+本节从 Environment、CgenClassTable、CgenNode 和典型表达式几方面，说明具体实现要点，并结合必要的代码片段进行解释。
+
+\subsection{各文件修改内容概览}
+\begin{itemize}
+    \item \texttt{cool-tree.handcode.h}：为表达式节点增加类型字段和统一的 \texttt{code} 接口，使语义分析阶段的类型信息可以在代码生成阶段复用；
+    \item \texttt{cool-tree.h}：确认 \texttt{method\_class}、\texttt{attr\_class}、\texttt{branch\_class} 等节点的成员字段（如 \texttt{name}、\texttt{type\_decl}、\texttt{expr}）与代码生成访问方式一致；
+    \item \texttt{cgen.h}：新增 \texttt{Environment} 类，并扩展 \texttt{CgenClassTable} 与 \texttt{CgenNode}，增加类标签、方法表和属性表等字段；
+    \item \texttt{cgen.cc}：从框架骨架出发，完整实现常量区生成、类表和对象表生成、分发表和原型对象生成，以及所有表达式节点的 \texttt{code} 方法。
+\end{itemize}
+
+\subsection{Environment：环境与作用域管理}
+环境类 \texttt{Environment} 在 \texttt{cgen.h} 与 \texttt{cgen.cc} 中实现，负责在代码生成阶段维护局部变量、形式参数和属性的访问信息：
+\begin{itemize}
+    \item 使用 \texttt{vars} 向量按栈顺序保存所有当前作用域内的 \texttt{let} 变量，\texttt{scope\_lengths} 用于记录进入作用域前的栈深度，在退出作用域时恢复；
+    \item 使用 \texttt{formals} 保存当前方法的形式参数顺序，便于根据参数索引计算相对于 \texttt{FP} 的偏移；
+    \item 成员 \texttt{cur\_class} 指向当前生成代码的类节点 \texttt{CgenNode}，用于访问属性偏移和类标签；
+    \item \texttt{LookUpVar} 从最近作用域向外查找变量在线性表中的位置，换算为相对 \texttt{SP} 的偏移；
+    \item \texttt{LookUpParam} 在 \texttt{formals} 中顺序查找参数位置，换算为相对 \texttt{FP} 的偏移；
+    \item \texttt{LookUpAttrib} 调用当前类节点的 \texttt{get\_attrib\_offset}，将属性名映射为对象内偏移。
+\end{itemize}
+通过 \texttt{Environment}，所有访问变量/参数/属性的表达式都可以使用统一接口，而不必自行计算偏移，降低错误概率。
+
+\subsection{CgenClassTable：类表与全局代码生成}
+\texttt{CgenClassTable} 继承自符号表模板，负责收集所有 \texttt{CgenNode} 并驱动整个代码生成过程：
+\begin{itemize}
+    \item 在构造函数中调用 \texttt{install\_basic\_classes} 安装 \texttt{Object, IO, Int, Bool, Str} 等基本类，再通过 \texttt{install\_classes} 将用户类包装为 \texttt{CgenNode}；
+    \item 通过 \texttt{build\_inheritance\_tree} 与 \texttt{set\_relations} 建立父子指针；
+    \item 在 \texttt{code()} 中依次调用 \texttt{code\_global\_data}、\texttt{code\_select\_gc}、\texttt{code\_constants}、\texttt{code\_class\_nameTab}、\texttt{code\_class\_objTab}、\texttt{code\_dispatchTabs}、\texttt{code\_protObjs}、\texttt{code\_global\_text}、\texttt{code\_class\_inits} 和 \texttt{code\_class\_methods}，完成从数据段到文本段的全部输出；
+    \item 通过 \texttt{probe} 接口可以按类名查找对应 \texttt{CgenNode}，用于 \texttt{dispatch}、\texttt{static\_dispatch}、\texttt{case} 和 \texttt{new SELF\_TYPE} 等表达式中查询类信息。
+\end{itemize}
+
+\subsection{CgenNode：类标签、属性与方法布局}
+\texttt{CgenNode} 继承自 \texttt{class\_\_class}，用于给每个类附加代码生成相关信息：
+\begin{itemize}
+    \item 成员 \texttt{inheritance\_path} 保存从根类到当前类的路径，用于计算 \texttt{case} 表达式中类型深度；
+    \item 成员 \texttt{methods} 和 \texttt{attribs} 分别记录方法表和属性表，方法条目为“方法名 + 定义该方法的类名”，属性条目为“属性名 + 类型”；
+    \item 成员 \texttt{class\_tag} 和 \texttt{max\_child\_tag} 记录当前类和其子树的标签区间；
+    \item \texttt{setup} 从根节点出发深度优先遍历继承树，给每个类分配标签，并继承父类的方法表和属性表，在遇到重写方法时更新定义类信息；
+    \item \texttt{code\_protobj} 根据属性表生成原型对象，自动填充整数 0、空字符串和布尔常量等属性默认值；
+    \item \texttt{code\_init} 为每个类生成初始化方法：先调用父类初始化，再对本类带初始表达式的属性执行赋值；
+    \item \texttt{code\_methods} 为每个用户类的方法生成 MIPS 代码，实现标准的栈帧搭建与恢复。
+\end{itemize}
+
+\subsection{典型表达式的代码生成}
+本实验为所有表达式节点实现了 \texttt{code(ostream\&, Environment)} 方法。下面对若干代表性表达式进行说明。
+
+\subsubsection{赋值与变量引用}
+\begin{itemize}
+    \item \texttt{assign\_class::code} 首先对右侧表达式求值，结果存放在 \texttt{ACC} 中，然后依次尝试按 \texttt{Environment} 查找 let 变量、形式参数和属性，将结果存入相应位置，如果启用 GC，属性赋值后还会调用写屏障更新引用；
+    \item \texttt{object\_class::code} 对于 \texttt{self} 直接返回 \texttt{SELF}，否则同样通过 \texttt{LookUpVar}、\texttt{LookUpParam} 和 \texttt{LookUpAttrib} 从栈、帧和对象中加载值。
+\end{itemize}
+
+\subsubsection{静态与动态方法调用}
+\begin{itemize}
+    \item \texttt{dispatch\_class::code} 先按从左到右顺序计算实参并依次压栈，再对接收者表达式求值并检查是否为 void，随后从对象头中取出分发表指针，根据当前表达式的静态类型和方法名在 \texttt{CgenNode} 中查找方法偏移，加载函数地址并通过 \texttt{jalr} 调用；
+    \item \texttt{static\_dispatch\_class::code} 与动态派发类似，只是分发表来自静态指定的类而非运行时类型。
+\end{itemize}
+
+\subsubsection{条件、循环与 case}
+\begin{itemize}
+    \item \texttt{cond\_class::code} 通过两个标签实现 if-then-else 结构：先对条件表达式求值并提取布尔值，根据真假跳转到 then 或 else 分支，最后在统一的结束标签处收敛；
+    \item \texttt{loop\_class::code} 使用循环开始和结束两个标签：先在开始处对条件求值，如果为假则跳转到结束，否则执行循环体后跳回开始，结束时将 \texttt{ACC} 置为 void；
+    \item \texttt{typcase\_class::code} 将所有分支按类型深度从大到小排序，使更具体的类优先匹配，通过比较运行时类标签是否落在某类型子树的 \texttt{[tag, max\_child\_tag]} 区间来判断是否命中分支，如果所有分支都未命中则调用运行时错误处理函数。
+\end{itemize}
+
+\subsubsection{算术与比较运算}
+\begin{itemize}
+    \item 对于 \texttt{plus}、\texttt{sub}、\texttt{mul}、\texttt{divide} 等算术运算，遵循“复制 Int 对象 + 更新值”的策略：先计算左操作数并压栈，再计算右操作数并调用 \texttt{Object.copy} 得到新对象，从两个操作数中提取整数部分进行运算，最后将结果写回新对象的 \texttt{\_val} 字段；
+    \item \texttt{lt}、\texttt{leq} 等比较运算先提取整数值，再通过条件跳转设置布尔常量对象；
+    \item \texttt{eq} 根据操作数类型选择整数、布尔、字符串特定的比较例程或直接比较对象地址。
+\end{itemize}
+
+\subsubsection{new 与 SELF\_TYPE}
+\begin{itemize}
+    \item 对于普通类型 \texttt{new T}，直接生成对 \texttt{T\_protObj} 的地址加载和 \texttt{Object.copy} 调用，然后调用 \texttt{T\_init} 完成初始化；
+    \item 对于 \texttt{new SELF\_TYPE}，先从 \texttt{class\_objTab} 中根据当前对象的类标签计算出对应条目，取出 \texttt{protObj} 和 \texttt{init} 地址，进而实现运行时多态的对象创建。
+\end{itemize}
+
+\section{测试过程与结果}
+\subsection{命令行测试流程}
+在 \texttt{\textasciitilde/student-dist/assignments/PA5} 目录下执行：
+\begin{lstlisting}[language=bash]
+make clean
+make
+
+ln -s ../../bin/cgen ./cgen
+chmod +x ./cgen
+
+./mycoolc -o example_my.s example.cl
+../../bin/spim -file example_my.s
+\end{lstlisting}
+SPIM 输出中包含 \texttt{COOL program successfully executed}，表明代码生成器生成的汇编可以在 COOL 运行时环境下正确执行。
+
+\subsection{终端运行截图}
+为直观展示实验过程，本节给出两张实际运行截图。
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.48\textwidth]{figs/make_cgen.png}
+    \caption{在 PA5 目录下执行 \texttt{make clean} 与 \texttt{make} 的编译输出}
+    \label{fig:make-cgen}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.48\textwidth]{figs/spim_example.png}
+    \caption{使用 \texttt{./mycoolc} 编译 \texttt{example.cl} 并在 SPIM 中成功运行的结果}
+    \label{fig:spim-example}
+\end{figure}
+
+\section{总结}
+本次 PA5 实验实现了 COOL 语言的代码生成器，将语义分析后的抽象语法树成功映射为可在 SPIM 上运行的 MIPS 汇编。报告中详细记录了对 \texttt{cool-tree.handcode.h}、\texttt{cool-tree.h}、\texttt{cgen.h} 和 \texttt{cgen.cc} 的具体修改内容，以及新增的环境管理、类标签分配、分发表构建和各类表达式代码生成功能。通过与官方编译器在多组测试上的对比，证明本次实现满足课程对 PA5 的功能和正确性要求，也为理解后端代码生成和运行时系统的设计提供了实践经验。
+
+\end{document}
